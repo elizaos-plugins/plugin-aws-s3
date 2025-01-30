@@ -1,0 +1,21 @@
+{
+  "name": "@elizaos-plugins/plugin-aws-s3",
+  "version": "0.1.8+build.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.705.0",
+    "@aws-sdk/s3-request-presigner": "^3.705.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.8.4",
+    "tsup": "8.3.5",
+    "typescript": "^5.7.3"
+  },
+  "scripts": {
+    "build": "tsup --format esm --dts",
+    "dev": "tsup --format esm --dts --watch"
+  }
+}
