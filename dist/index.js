@@ -1,16 +1,19 @@
 // src/services/awsS3.ts
+import { Service, ServiceType, elizaLogger } from "@elizaos/core";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import * as fs from "node:fs";
 import * as path from "node:path";
-var AwsS3Service = class {
+var AwsS3Service = class extends Service {
   constructor() {
+    super(...arguments);
     this.s3Client = null;
     this.bucket = "";
     this.fileUploadPath = "";
     this.runtime = null;
   }
   async initialize(runtime) {
+    elizaLogger.log("Initializing AwsS3Service");
     this.runtime = runtime;
     this.fileUploadPath = runtime.getSetting("AWS_S3_UPLOAD_PATH") ?? "";
   }
@@ -18,9 +21,7 @@ var AwsS3Service = class {
     if (this.s3Client) return true;
     if (!this.runtime) return false;
     const AWS_ACCESS_KEY_ID = this.runtime.getSetting("AWS_ACCESS_KEY_ID");
-    const AWS_SECRET_ACCESS_KEY = this.runtime.getSetting(
-      "AWS_SECRET_ACCESS_KEY"
-    );
+    const AWS_SECRET_ACCESS_KEY = this.runtime.getSetting("AWS_SECRET_ACCESS_KEY");
     const AWS_REGION = this.runtime.getSetting("AWS_REGION");
     const AWS_S3_BUCKET = this.runtime.getSetting("AWS_S3_BUCKET");
     if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY || !AWS_REGION || !AWS_S3_BUCKET) {
@@ -28,9 +29,7 @@ var AwsS3Service = class {
     }
     const endpoint = this.runtime.getSetting("AWS_S3_ENDPOINT");
     const sslEnabled = this.runtime.getSetting("AWS_S3_SSL_ENABLED");
-    const forcePathStyle = this.runtime.getSetting(
-      "AWS_S3_FORCE_PATH_STYLE"
-    );
+    const forcePathStyle = this.runtime.getSetting("AWS_S3_FORCE_PATH_STYLE");
     this.s3Client = new S3Client({
       ...endpoint ? { endpoint } : {},
       ...sslEnabled ? { sslEnabled } : {},
@@ -52,12 +51,6 @@ var AwsS3Service = class {
           error: "AWS S3 credentials not configured"
         };
       }
-      if (!this.s3Client) {
-        return {
-          success: false,
-          error: "S3 client not initialized"
-        };
-      }
       if (!fs.existsSync(filePath)) {
         return {
           success: false,
@@ -66,7 +59,7 @@ var AwsS3Service = class {
       }
       const fileContent = fs.readFileSync(filePath);
       const baseFileName = `${Date.now()}-${path.basename(filePath)}`;
-      const fileName = `${this.fileUploadPath}${subDirectory}/${baseFileName}`.split("//").join("/");
+      const fileName = `${this.fileUploadPath}${subDirectory}/${baseFileName}`.replaceAll("//", "/");
       const uploadParams = {
         Bucket: this.bucket,
         Key: fileName,
@@ -78,26 +71,22 @@ var AwsS3Service = class {
         success: true
       };
       if (!useSignedUrl) {
-        const s3Config = this.s3Client.config;
-        if (s3Config.endpoint) {
-          const endpoint = await s3Config.endpoint();
+        if (this.s3Client.config.endpoint) {
+          const endpoint = await this.s3Client.config.endpoint();
           const port = endpoint.port ? `:${endpoint.port}` : "";
           result.url = `${endpoint.protocol}//${endpoint.hostname}${port}${endpoint.path}${this.bucket}/${fileName}`;
         } else {
-          result.url = `https://${this.bucket}.s3.${this.runtime?.getSetting("AWS_REGION")}.amazonaws.com/${fileName}`;
+          result.url = `https://${this.bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
         }
       } else {
         const getObjectCommand = new GetObjectCommand({
           Bucket: this.bucket,
           Key: fileName
         });
-        result.url = await getSignedUrl(
-          this.s3Client,
-          getObjectCommand,
-          {
-            expiresIn
-          }
-        );
+        result.url = await getSignedUrl(this.s3Client, getObjectCommand, {
+          expiresIn
+          // 15 minutes in seconds
+        });
       }
       return result;
     } catch (error) {
@@ -107,12 +96,12 @@ var AwsS3Service = class {
       };
     }
   }
+  /**
+   * Generate signed URL for existing file
+   */
   async generateSignedUrl(fileName, expiresIn = 900) {
     if (!await this.initializeS3Client()) {
       throw new Error("AWS S3 credentials not configured");
-    }
-    if (!this.s3Client) {
-      throw new Error("S3 client not initialized");
     }
     const command = new GetObjectCommand({
       Bucket: this.bucket,
@@ -147,12 +136,6 @@ var AwsS3Service = class {
           error: "AWS S3 credentials not configured"
         };
       }
-      if (!this.s3Client) {
-        return {
-          success: false,
-          error: "S3 client not initialized"
-        };
-      }
       if (!jsonData) {
         return {
           success: false,
@@ -163,9 +146,9 @@ var AwsS3Service = class {
       const actualFileName = fileName || `${timestamp}.json`;
       let fullPath = this.fileUploadPath || "";
       if (subDirectory) {
-        fullPath = `${fullPath}/${subDirectory}`.split(/\/+/).join("/");
+        fullPath = `${fullPath}/${subDirectory}`.replace(/\/+/g, "/");
       }
-      const key = `${fullPath}/${actualFileName}`.split(/\/+/).join("/");
+      const key = `${fullPath}/${actualFileName}`.replace(/\/+/g, "/");
       const jsonString = JSON.stringify(jsonData, null, 2);
       const uploadParams = {
         Bucket: this.bucket,
@@ -179,24 +162,19 @@ var AwsS3Service = class {
         key
       };
       if (!useSignedUrl) {
-        const s3Config = this.s3Client.config;
-        if (s3Config.endpoint) {
-          const endpoint = await s3Config.endpoint();
+        if (this.s3Client.config.endpoint) {
+          const endpoint = await this.s3Client.config.endpoint();
           const port = endpoint.port ? `:${endpoint.port}` : "";
           result.url = `${endpoint.protocol}//${endpoint.hostname}${port}${endpoint.path}${this.bucket}/${key}`;
         } else {
-          result.url = `https://${this.bucket}.s3.${this.runtime?.getSetting("AWS_REGION")}.amazonaws.com/${key}`;
+          result.url = `https://${this.bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
         }
       } else {
         const getObjectCommand = new GetObjectCommand({
           Bucket: this.bucket,
           Key: key
         });
-        result.url = await getSignedUrl(
-          this.s3Client,
-          getObjectCommand,
-          { expiresIn }
-        );
+        result.url = await getSignedUrl(this.s3Client, getObjectCommand, { expiresIn });
       }
       return result;
     } catch (error) {
@@ -207,7 +185,7 @@ var AwsS3Service = class {
     }
   }
 };
-AwsS3Service.serviceType = "AWS_S3";
+AwsS3Service.serviceType = ServiceType.AWS_S3;
 
 // src/index.ts
 var awsPlugin = {
